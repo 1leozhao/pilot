@@ -21,10 +21,15 @@ CONVERSATIONS: dict[str, list[dict[str, str]]] = {}
 def default_prompt() -> str:
     return (
         "You are a DSA / low-level design helper. Read the full problem statement "
-        "and any starter code visible on the screen. If there is starter code, MODIFY and extend "
-        "the existing code in-place rather than rewriting from scratch. Fix bugs, "
-        "fill in missing pieces, and add only what is needed to pass all test "
-        "cases. Implement the most standard, commonly accepted and efficient "
+        "and any starter code visible on the screen. "
+        "CRITICAL: If there is ANY existing code, solution, or partial implementation visible on the screen, "
+        "you MUST fix, modify, and extend that existing code in-place. DO NOT create a new solution from scratch. "
+        "DO NOT rewrite the entire solution. Your job is to identify what's wrong or missing in the existing code "
+        "and fix it, not to replace it with a completely new approach. "
+        "If there is starter code, MODIFY and extend the existing code in-place rather than rewriting from scratch. "
+        "Fix bugs, fill in missing pieces, and add only what is needed to pass all test cases. "
+        "Preserve as much of the existing code structure and logic as possible - only change what needs to be fixed. "
+        "Implement the most standard, commonly accepted and efficient "
         "Python solution (in terms of time and space complexity) for this problem, "
         "using the typical data structures and patterns seen in interview "
         "solutions. Do NOT use obscure, niche or rarely taught algorithms or data "
@@ -351,8 +356,9 @@ def api_ask():
                 + "\n\nUser feedback on the previous solution and additional "
                 "requirements:\n"
                 + feedback
-                + "\n\nUpdate the code accordingly while preserving the core "
-                "problem statement and all earlier instructions."
+                + "\n\nCRITICAL: If there is existing code visible on the screen, you MUST fix and modify "
+                "that existing code. DO NOT create a new solution from scratch. Update the code accordingly "
+                "while preserving the core problem statement and all earlier instructions."
             )
 
         if provider == "anthropic":
@@ -437,8 +443,10 @@ def api_feedback():
         + code
         + "\n\nUser feedback and requested changes:\n"
         + feedback
-        + "\n\nUpdate the code accordingly. Output ONLY the final Python code that "
-        "should replace the previous solution (no explanation, no comments, no "
+        + "\n\nCRITICAL: You MUST fix and modify the existing code above. DO NOT create a new solution from scratch. "
+        "DO NOT rewrite the entire solution. Identify what needs to be changed based on the feedback and modify "
+        "only those parts. Preserve as much of the existing code structure and logic as possible. "
+        "Output ONLY the final Python code that should replace the previous solution (no explanation, no comments, no "
         "markdown or code fences)."
     )
 
