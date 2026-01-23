@@ -141,9 +141,8 @@ def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[s
     )
 
     response = client.chat.completions.create(
-        model="gpt-4.1",
+        model="gpt-5.2",
         messages=messages,
-        max_tokens=max_tokens,
     )
 
     message = response.choices[0].message
@@ -247,9 +246,8 @@ def refine_openai_solution(prompt: str, history: list[dict[str, str]] | None = N
     messages.append({"role": "user", "content": prompt})
 
     response = client.chat.completions.create(
-        model="gpt-4.1",
+        model="gpt-5.2",
         messages=messages,
-        max_tokens=500,
     )
 
     message = response.choices[0].message
