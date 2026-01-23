@@ -115,6 +115,43 @@
     <div class="shell">
       <div class="card">
         <div
+          id="modeRow"
+          style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;"
+        >
+          <button
+            id="modeCoding"
+            class="mode-toggle active"
+            style="
+              flex: 1;
+              padding: 8px 12px;
+              font-size: 13px;
+              border-radius: 8px;
+              background: rgba(29, 78, 216, 0.3);
+              color: #e5e7eb;
+              border: 1px solid rgba(59, 130, 246, 0.6);
+              cursor: pointer;
+            "
+          >
+            Coding
+          </button>
+          <button
+            id="modeQuant"
+            class="mode-toggle"
+            style="
+              flex: 1;
+              padding: 8px 12px;
+              font-size: 13px;
+              border-radius: 8px;
+              background: rgba(31, 41, 55, 0.9);
+              color: #e5e7eb;
+              border: 1px solid rgba(148, 163, 184, 0.5);
+              cursor: pointer;
+            "
+          >
+            Quant
+          </button>
+        </div>
+        <div
           id="modelRow"
           style="margin-bottom: 6px; display: flex; gap: 8px; align-items: center;"
         >
@@ -131,7 +168,7 @@
               border: 1px solid rgba(148, 163, 184, 0.5);
             "
           >
-            <option value="anthropic">Claude Opus 4.1</option>
+            <option value="anthropic">Claude Opus 4.5</option>
             <option value="openai">GPT-4.1</option>
           </select>
         </div>
@@ -223,6 +260,7 @@
         </div>
         <div class="answer empty" id="answer">
           <pre><code id="answerCode" class="language-python"></code></pre>
+          <div id="answerText" style="display: none; padding: 10px 12px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word;"></div>
           <div id="answerExplain" style="display: none; padding: 10px 12px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word;"></div>
         </div>
       </div>
@@ -230,11 +268,15 @@
     <script>
       const actionBtn = document.getElementById("actionBtn");
       const actionLabel = document.getElementById("actionLabel");
+      const modeRow = document.getElementById("modeRow");
+      const modeCodingBtn = document.getElementById("modeCoding");
+      const modeQuantBtn = document.getElementById("modeQuant");
       const modelRow = document.getElementById("modelRow");
       const providerEl = document.getElementById("provider");
       const statusEl = document.getElementById("status");
       const answerEl = document.getElementById("answer");
       const answerCodeEl = document.getElementById("answerCode");
+      const answerTextEl = document.getElementById("answerText");
       const answerExplainEl = document.getElementById("answerExplain");
       const answerToggle = document.getElementById("answerToggle");
       const toggleCodeBtn = document.getElementById("toggleCodeBtn");
@@ -243,9 +285,54 @@
       const feedbackBtn = document.getElementById("feedbackBtn");
       let interviewStarted = false;
       let interviewId = null;
+      let currentMode = "coding";
       let currentCode = "";
+      let currentText = "";
       let currentExplanation = "";
       let showingCode = true;
+
+      function updateModeUI() {
+        const isCoding = currentMode === "coding";
+        if (isCoding) {
+          modeCodingBtn.style.background = "rgba(29, 78, 216, 0.3)";
+          modeCodingBtn.style.borderColor = "rgba(59, 130, 246, 0.6)";
+          modeQuantBtn.style.background = "rgba(31, 41, 55, 0.9)";
+          modeQuantBtn.style.borderColor = "rgba(148, 163, 184, 0.5)";
+          answerToggle.style.display = interviewStarted && currentCode ? "flex" : "none";
+          answerCodeEl.style.display = showingCode ? "block" : "none";
+          answerTextEl.style.display = "none";
+          if (interviewStarted) {
+            feedbackEl.style.display = "block";
+            feedbackBtn.style.display = "inline-flex";
+          }
+          if (currentCode) {
+            answerEl.classList.remove("empty");
+          }
+        } else {
+          modeCodingBtn.style.background = "rgba(31, 41, 55, 0.9)";
+          modeCodingBtn.style.borderColor = "rgba(148, 163, 184, 0.5)";
+          modeQuantBtn.style.background = "rgba(29, 78, 216, 0.3)";
+          modeQuantBtn.style.borderColor = "rgba(59, 130, 246, 0.6)";
+          answerToggle.style.display = "none";
+          answerCodeEl.style.display = "none";
+          answerTextEl.style.display = currentText ? "block" : "none";
+          feedbackEl.style.display = "none";
+          feedbackBtn.style.display = "none";
+          if (currentText) {
+            answerEl.classList.remove("empty");
+          }
+        }
+      }
+
+      modeCodingBtn.addEventListener("click", () => {
+        currentMode = "coding";
+        updateModeUI();
+      });
+
+      modeQuantBtn.addEventListener("click", () => {
+        currentMode = "quant";
+        updateModeUI();
+      });
 
       function startInterview() {
         if (interviewStarted) return;
@@ -258,14 +345,17 @@
               String(Date.now()) + "-" + Math.random().toString(36).slice(2);
           }
         }
+        if (modeRow) {
+          modeRow.style.display = "none";
+        }
         if (modelRow) {
           modelRow.style.display = "none";
         }
         actionLabel.textContent = "Solve from screen";
+        const modeText = currentMode === "coding" ? "code" : "problem";
         statusEl.textContent =
-          "Interview started. Edit code on your screen and tap Solve to update.";
-        feedbackEl.style.display = "block";
-        feedbackBtn.style.display = "inline-flex";
+          `Interview started. Edit ${modeText} on your screen and tap Solve to update.`;
+        updateModeUI();
       }
 
       async function solve() {
@@ -280,34 +370,48 @@
         answerEl.classList.add("empty");
         answerToggle.style.display = "none";
         answerCodeEl.textContent = "";
+        answerTextEl.textContent = "";
         answerExplainEl.textContent = "";
         currentCode = "";
+        currentText = "";
         currentExplanation = "";
 
         try {
+          const requestBody = {
+            provider: providerEl.value,
+            interview_id: interviewId,
+            mode: currentMode,
+          };
+          // Only send feedback in coding mode
+          if (currentMode === "coding") {
+            requestBody.feedback = (feedbackEl.value || "").trim();
+          }
           const res = await fetch("/api/ask", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              provider: providerEl.value,
-              interview_id: interviewId,
-              feedback: (feedbackEl.value || "").trim(),
-            }),
+            body: JSON.stringify(requestBody),
           });
           const data = await res.json();
           if (!data.ok) {
             throw new Error(data.error || "Unknown error");
           }
           statusEl.textContent = "Solution ready.";
-          currentCode = data.answer || "";
-          answerCodeEl.textContent = currentCode;
-          currentExplanation = "";
-          showingCode = true;
-          answerEl.classList.remove("empty");
-          answerToggle.style.display = "flex";
-          showCodeView();
-          if (window.Prism && Prism.highlightElement) {
-            Prism.highlightElement(answerCodeEl);
+          if (currentMode === "quant") {
+            currentText = data.answer || "";
+            answerTextEl.textContent = currentText;
+            answerEl.classList.remove("empty");
+            answerTextEl.style.display = "block";
+          } else {
+            currentCode = data.answer || "";
+            answerCodeEl.textContent = currentCode;
+            currentExplanation = "";
+            showingCode = true;
+            answerEl.classList.remove("empty");
+            answerToggle.style.display = "flex";
+            showCodeView();
+            if (window.Prism && Prism.highlightElement) {
+              Prism.highlightElement(answerCodeEl);
+            }
           }
         } catch (err) {
           console.error(err);
@@ -350,7 +454,7 @@
       });
 
       toggleExplainBtn.addEventListener("click", async () => {
-        if (!currentCode) return;
+        if (currentMode !== "coding" || !currentCode) return;
         if (currentExplanation) {
           showExplainView();
           return;
@@ -397,31 +501,56 @@
         statusEl.textContent = "Updating solution based on feedback…";
 
         try {
-          const res = await fetch("/api/feedback", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              provider: providerEl.value,
-              interview_id: interviewId,
-              feedback,
-              code: answerCodeEl.textContent || "",
-            }),
-          });
-          const data = await res.json();
-          if (!data.ok) {
-            throw new Error(data.error || "Unknown error");
-          }
-          statusEl.textContent = "Solution updated from feedback.";
-          currentCode = data.answer || "";
-          answerCodeEl.textContent = currentCode;
-          currentExplanation = "";
-          showingCode = true;
-          answerEl.classList.remove("empty");
-          answerToggle.style.display = "flex";
-          showCodeView();
-          feedbackEl.value = "";
-          if (window.Prism && Prism.highlightElement) {
-            Prism.highlightElement(answerCodeEl);
+          if (currentMode === "quant") {
+            // For quant mode, use the ask endpoint with feedback
+            const res = await fetch("/api/ask", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: providerEl.value,
+                interview_id: interviewId,
+                feedback,
+                mode: currentMode,
+              }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+              throw new Error(data.error || "Unknown error");
+            }
+            statusEl.textContent = "Solution updated from feedback.";
+            currentText = data.answer || "";
+            answerTextEl.textContent = currentText;
+            answerEl.classList.remove("empty");
+            answerTextEl.style.display = "block";
+            feedbackEl.value = "";
+          } else {
+            // For coding mode, use the feedback endpoint
+            const res = await fetch("/api/feedback", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: providerEl.value,
+                interview_id: interviewId,
+                feedback,
+                code: answerCodeEl.textContent || "",
+              }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+              throw new Error(data.error || "Unknown error");
+            }
+            statusEl.textContent = "Solution updated from feedback.";
+            currentCode = data.answer || "";
+            answerCodeEl.textContent = currentCode;
+            currentExplanation = "";
+            showingCode = true;
+            answerEl.classList.remove("empty");
+            answerToggle.style.display = "flex";
+            showCodeView();
+            feedbackEl.value = "";
+            if (window.Prism && Prism.highlightElement) {
+              Prism.highlightElement(answerCodeEl);
+            }
           }
         } catch (err) {
           console.error(err);

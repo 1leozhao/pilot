@@ -56,6 +56,24 @@ def default_prompt() -> str:
     )
 
 
+def quant_prompt() -> str:
+    return (
+        "You are a statistics brain teasers, probability, and pattern recognition helper. Read the problem statement "
+        "visible on the screen. The problem may involve: "
+        "statistics and probability (use concepts such as Bayes' theorem, Markov chains, conditional probability, "
+        "expected value, variance, distributions, and other relevant probability and statistics techniques), "
+        "or pattern recognition (e.g., 'which one is next', 'which image doesn't belong', sequence completion, "
+        "logical pattern identification, visual pattern matching, etc.). "
+        "IMPORTANT: Structure your response as follows: "
+        "1. Put the solution at the top of your response in ONE LINE (e.g., 'The answer is 0.25', 'The probability is 1/3', "
+        "'The next item is X', 'Image Y doesn't belong', etc.). "
+        "2. Below that, provide any calculations involved with explanations, or explain the pattern you identified. "
+        "Show step-by-step work and explain the reasoning. For pattern recognition problems, describe the pattern clearly. "
+        "Keep the solution clear and suitable for an interview setting. "
+        "Do NOT wrap your response in markdown, backticks, or code fences. Return plain text only."
+    )
+
+
 def get_openai_client() -> OpenAI:
     """Create an OpenAI client using OPENAI_API_KEY."""
     api_key = os.getenv("OPENAI_API_KEY")
@@ -89,7 +107,7 @@ def capture_screenshot_bytes() -> bytes:
         return buf.getvalue()
 
 
-def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[str, str]] | None = None) -> str:
+def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[str, str]] | None = None, max_tokens: int = 500) -> str:
     """Send screenshot + prompt to the OpenAI vision model and return text."""
     client = get_openai_client()
 
@@ -125,7 +143,7 @@ def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[s
     response = client.chat.completions.create(
         model="gpt-4.1",
         messages=messages,
-        max_tokens=500,
+        max_tokens=max_tokens,
     )
 
     message = response.choices[0].message
@@ -147,7 +165,7 @@ def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[s
     return cleaned or "No textual answer was returned by the model."
 
 
-def ask_anthropic_about_image(image_bytes: bytes, prompt: str, history: list[dict[str, str]] | None = None) -> str:
+def ask_anthropic_about_image(image_bytes: bytes, prompt: str, history: list[dict[str, str]] | None = None, max_tokens: int = 500) -> str:
     """Send screenshot + prompt to Anthropic Claude Opus 4.1 and return text."""
     client = get_anthropic_client()
 
@@ -197,8 +215,8 @@ def ask_anthropic_about_image(image_bytes: bytes, prompt: str, history: list[dic
     )
 
     response = client.messages.create(
-        model="claude-opus-4-1-20250805",
-        max_tokens=500,
+        model="claude-opus-4-5",
+        max_tokens=max_tokens,
         messages=messages,
     )
 
@@ -335,10 +353,15 @@ def index():
 def api_ask():
     """Capture screenshot and send to LLM."""
     body = request.get_json(silent=True) or {}
-    prompt = body.get(
-        "prompt",
-        default_prompt(),
-    )
+    mode = (body.get("mode") or "coding").lower()
+    
+    # Select prompt based on mode
+    if mode == "quant":
+        base_prompt = quant_prompt()
+    else:
+        base_prompt = default_prompt()
+    
+    prompt = body.get("prompt", base_prompt)
     provider = (body.get("provider") or "openai").lower()
     feedback = (body.get("feedback") or "").strip()
     interview_id = body.get("interview_id")
@@ -351,27 +374,39 @@ def api_ask():
 
         effective_prompt = prompt
         if feedback:
-            effective_prompt = (
-                prompt
-                + "\n\nUser feedback on the previous solution and additional "
-                "requirements:\n"
-                + feedback
-                + "\n\nCRITICAL: If there is existing code visible on the screen, you MUST fix and modify "
-                "that existing code. DO NOT create a new solution from scratch. Update the code accordingly "
-                "while preserving the core problem statement and all earlier instructions."
-            )
+            if mode == "quant":
+                effective_prompt = (
+                    prompt
+                    + "\n\nUser feedback on the previous solution and additional "
+                    "requirements:\n"
+                    + feedback
+                    + "\n\nUpdate the solution accordingly while preserving the core problem statement and all earlier instructions."
+                )
+            else:
+                effective_prompt = (
+                    prompt
+                    + "\n\nUser feedback on the previous solution and additional "
+                    "requirements:\n"
+                    + feedback
+                    + "\n\nCRITICAL: If there is existing code visible on the screen, you MUST fix and modify "
+                    "that existing code. DO NOT create a new solution from scratch. Update the code accordingly "
+                    "while preserving the core problem statement and all earlier instructions."
+                )
 
+        # Use more tokens for quant mode since it's text-based explanations
+        max_tokens = 1000 if mode == "quant" else 500
+        
         if provider == "anthropic":
-            answer = ask_anthropic_about_image(img_bytes, effective_prompt, history)
+            answer = ask_anthropic_about_image(img_bytes, effective_prompt, history, max_tokens)
         else:
-            answer = ask_openai_about_image(img_bytes, effective_prompt, history)
+            answer = ask_openai_about_image(img_bytes, effective_prompt, history, max_tokens)
 
         if interview_id:
             turns = CONVERSATIONS.setdefault(interview_id, [])
             turns.append({"user": effective_prompt, "assistant": answer})
 
         return jsonify(
-            {"ok": True, "answer": answer, "provider": provider, "interview_id": interview_id}
+            {"ok": True, "answer": answer, "provider": provider, "interview_id": interview_id, "mode": mode}
         )
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
