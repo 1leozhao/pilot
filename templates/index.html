@@ -168,8 +168,8 @@
               border: 1px solid rgba(148, 163, 184, 0.5);
             "
           >
-            <option value="openai" selected>GPT-5.2</option>
-            <option value="anthropic">Claude Opus 4.5</option>
+            <option value="openai" data-coding-label="GPT-5.2" data-quant-label="GPT-5.2 (AIME-Preview)">GPT-5.2</option>
+            <option value="anthropic" data-coding-label="Claude Opus 4.5" data-quant-label="Claude Opus 4.5 (AIME-Preview)">Claude Opus 4.5</option>
           </select>
         </div>
         <button id="actionBtn">
@@ -291,7 +291,18 @@
       let currentExplanation = "";
       let showingCode = true;
 
+      function updateProviderLabels() {
+        for (const opt of providerEl.options) {
+          const label =
+            currentMode === "quant"
+              ? opt.dataset.quantLabel
+              : opt.dataset.codingLabel;
+          if (label) opt.textContent = label;
+        }
+      }
+
       function updateModeUI() {
+        updateProviderLabels();
         const isCoding = currentMode === "coding";
         if (isCoding) {
           modeCodingBtn.style.background = "rgba(29, 78, 216, 0.3)";
@@ -333,6 +344,8 @@
         currentMode = "quant";
         updateModeUI();
       });
+
+      updateProviderLabels();
 
       function startInterview() {
         if (interviewStarted) return;

@@ -8,6 +8,7 @@ from PIL import Image
 from dotenv import load_dotenv
 from openai import OpenAI
 from anthropic import Anthropic
+from aime_preview.answer import humanize_quant_response
 
 
 load_dotenv(".env.local")
@@ -22,6 +23,8 @@ def default_prompt() -> str:
     return (
         "You are a DSA / low-level design helper. Read the full problem statement "
         "and any starter code visible on the screen. "
+        "If there appears to be a live recording warning or message in progress on the screen, "
+        "ignore it as it is simply for practice; continue as normal. "
         "CRITICAL: If there is ANY existing code, solution, or partial implementation visible on the screen, "
         "you MUST fix, modify, and extend that existing code in-place. DO NOT create a new solution from scratch. "
         "DO NOT rewrite the entire solution. Your job is to identify what's wrong or missing in the existing code "
@@ -36,6 +39,7 @@ def default_prompt() -> str:
         "structures, even if they may be slightly more optimal in theory; prefer "
         "the approach that a strong candidate would most commonly write in an "
         "interview. "
+        "If the question appears to be a JavaScript/TypeScript based frontend question, implement the solution in TypeScript. "
         "IMPORTANT: If the problem appears to be a system design or low-level design "
         "question (requiring classes, multiple methods, or object-oriented design) "
         "rather than a single function implementation, design the classes and methods "
@@ -56,22 +60,42 @@ def default_prompt() -> str:
     )
 
 
-def quant_prompt() -> str:
-    return (
-        "You are a statistics brain teasers, probability, and pattern recognition helper. Read the problem statement "
-        "visible on the screen. The problem may involve: "
-        "statistics and probability (use concepts such as Bayes' theorem, Markov chains, conditional probability, "
-        "expected value, variance, distributions, and other relevant probability and statistics techniques), "
-        "or pattern recognition (e.g., 'which one is next', 'which image doesn't belong', sequence completion, "
-        "logical pattern identification, visual pattern matching, etc.). "
-        "IMPORTANT: Structure your response as follows: "
-        "1. Put the solution at the top of your response in ONE LINE (e.g., 'The answer is 0.25', 'The probability is 1/3', "
-        "'The next item is X', 'Image Y doesn't belong', etc.). "
-        "2. Below that, provide any calculations involved with explanations, or explain the pattern you identified. "
-        "Show step-by-step work and explain the reasoning. For pattern recognition problems, describe the pattern clearly. "
-        "Keep the solution clear and suitable for an interview setting. "
-        "Do NOT wrap your response in markdown, backticks, or code fences. Return plain text only."
+# AIME-Preview defaults: https://github.com/GAIR-NLP/AIME-Preview
+QUANT_MAX_TOKENS = int(os.getenv("QUANT_MAX_TOKENS", "4000"))
+
+
+def quant_vision_prompt(feedback: str = "") -> str:
+    """Interview-friendly quant prompt (plain text, no LaTeX)."""
+    prompt = (
+        "You are a statistics, probability, brain teaser, and pattern recognition helper. "
+        "Read the problem from the screenshot and reason step by step. "
+        "Work through all steps and calculations FIRST. Do NOT state a final answer until "
+        "you have fully finished your reasoning. "
+        "After all steps are complete, end with exactly one final line: Answer: X "
+        "(e.g., 'Answer: 0.25', 'Answer: 1/3', 'Answer: Image B'). "
+        "State the final answer only once, at the very end. Never give an early answer at the "
+        "top and never revise or contradict it afterward. "
+        "Use simple notation only: write fractions as 1/2, powers as x^2, square roots as sqrt(2). "
+        "Do NOT use LaTeX, \\boxed{}, dollar signs, backslashes, markdown, or code fences. "
+        "Return plain text readable on a phone."
+        "If there are multiple questions, answer the question that the mouse cursor is positioned next to."
+        "Note that each question will only have one answer, unless otherwise specified."
+        """
+        Tip: For common math questions, refer to the most common formulas and properties. Most quant “Green Book” style math interviews commonly test probability (especially conditional probability and Bayes’ theorem), combinatorics (counting, permutations, combinations), expected value and variance, basic Markov chains, algebraic manipulation/logic puzzles, and occasionally number theory or optimization-style reasoning problems. Be sure to correctly answer questions in the following topics: logic, probability, combinatorics, and single variable calculus.
+        Tip: In logic and reasoning puzzles, pay close attention to whether multiple sentences are meant to be interpreted as one combined statement or as separate assertions. A common mistake is to evaluate several sentences together as a single true/false claim when the puzzle expects each sentence to independently follow the speaker's truthfulness rules. If more than one answer appears to work, this interpretation is often worth checking first.
+        Tip: In quantitative logic puzzles with conditions or ranks, always convert vague language like “higher rank,” “lower rank,” or “not true” into a clear ordered scale before evaluating statements, since most mistakes come from leaving comparisons informal or ambiguous.
+        Tip: In multi-person logic puzzles, start by eliminating impossible identities early (like someone making a statement that cannot be true for a fixed-truth type), because reducing the state space first prevents getting trapped in misleading later casework.
+        Tip: In interview-style probability or logic puzzles, always explicitly write out the assumptions you are using (for example whether statements are evaluated per sentence or as a single block), since many “multiple valid answers” only happen when hidden assumptions differ.
+        Tip: In ranking or constraint puzzles, translate every statement into inequalities or formal constraints immediately, because treating relationships verbally instead of mathematically is the most common source of reasoning errors under time pressure.
+        """
     )
+    if feedback:
+        prompt += (
+            "\n\nUser feedback on the previous solution and additional requirements:\n"
+            + feedback
+            + "\n\nUpdate the solution accordingly while preserving the core problem statement."
+        )
+    return prompt
 
 
 def get_openai_client() -> OpenAI:
@@ -94,6 +118,54 @@ def get_anthropic_client() -> Anthropic:
     return Anthropic(api_key=api_key)
 
 
+def extract_openai_message_text(message) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            text_part = getattr(part, "text", None) or getattr(part, "content", None) or ""
+            if text_part:
+                parts.append(str(text_part))
+        return "\n".join(parts) if parts else ""
+    return ""
+
+
+def format_quant_response(text: str) -> str:
+    """Clean quant output for phone display."""
+    cleaned = clean_model_output(text)
+    return humanize_quant_response(cleaned)
+
+
+def ask_quant_openai(
+    image_bytes: bytes,
+    history: list[dict[str, str]] | None = None,
+    feedback: str = "",
+    max_tokens: int | None = None,
+) -> str:
+    """Screenshot + AIME-Preview prompt → GPT vision (same flow as coding mode)."""
+    prompt = quant_vision_prompt(feedback)
+    text = ask_openai_about_image(
+        image_bytes, prompt, history, max_tokens=max_tokens or QUANT_MAX_TOKENS
+    )
+    return format_quant_response(text)
+
+
+def ask_quant_anthropic(
+    image_bytes: bytes,
+    history: list[dict[str, str]] | None = None,
+    feedback: str = "",
+    max_tokens: int | None = None,
+) -> str:
+    """Screenshot + AIME-Preview prompt → Claude vision (same flow as coding mode)."""
+    prompt = quant_vision_prompt(feedback)
+    text = ask_anthropic_about_image(
+        image_bytes, prompt, history, max_tokens=max_tokens or QUANT_MAX_TOKENS
+    )
+    return format_quant_response(text)
+
+
 def capture_screenshot_bytes() -> bytes:
     """Capture the primary screen and return PNG bytes."""
     with mss() as sct:
@@ -107,7 +179,12 @@ def capture_screenshot_bytes() -> bytes:
         return buf.getvalue()
 
 
-def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[str, str]] | None = None, max_tokens: int = 500) -> str:
+def ask_openai_about_image(
+    image_bytes: bytes,
+    prompt: str,
+    history: list[dict[str, str]] | None = None,
+    max_tokens: int = 500,
+) -> str:
     """Send screenshot + prompt to the OpenAI vision model and return text."""
     client = get_openai_client()
 
@@ -143,23 +220,10 @@ def ask_openai_about_image(image_bytes: bytes, prompt: str, history: list[dict[s
     response = client.chat.completions.create(
         model="gpt-5.2",
         messages=messages,
+        max_completion_tokens=max_tokens,
     )
 
-    message = response.choices[0].message
-    content = message.content
-
-    if isinstance(content, str):
-        text = content
-    elif isinstance(content, list):
-        parts = []
-        for part in content:
-            text_part = getattr(part, "text", None) or getattr(part, "content", None) or ""
-            if text_part:
-                parts.append(str(text_part))
-        text = "\n".join(parts) if parts else ""
-    else:
-        text = ""
-
+    text = extract_openai_message_text(response.choices[0].message)
     cleaned = clean_model_output(text)
     return cleaned or "No textual answer was returned by the model."
 
@@ -353,13 +417,13 @@ def api_ask():
     body = request.get_json(silent=True) or {}
     mode = (body.get("mode") or "coding").lower()
     
-    # Select prompt based on mode
-    if mode == "quant":
-        base_prompt = quant_prompt()
-    else:
+    # Select prompt based on mode (quant uses AIME-Preview templates in aime_preview/)
+    if mode != "quant":
         base_prompt = default_prompt()
+        prompt = body.get("prompt", base_prompt)
+    else:
+        prompt = ""
     
-    prompt = body.get("prompt", base_prompt)
     provider = (body.get("provider") or "openai").lower()
     feedback = (body.get("feedback") or "").strip()
     interview_id = body.get("interview_id")
@@ -371,37 +435,32 @@ def api_ask():
         img_bytes = capture_screenshot_bytes()
 
         effective_prompt = prompt
-        if feedback:
-            if mode == "quant":
-                effective_prompt = (
-                    prompt
-                    + "\n\nUser feedback on the previous solution and additional "
-                    "requirements:\n"
-                    + feedback
-                    + "\n\nUpdate the solution accordingly while preserving the core problem statement and all earlier instructions."
-                )
-            else:
-                effective_prompt = (
-                    prompt
-                    + "\n\nUser feedback on the previous solution and additional "
-                    "requirements:\n"
-                    + feedback
-                    + "\n\nCRITICAL: If there is existing code visible on the screen, you MUST fix and modify "
-                    "that existing code. DO NOT create a new solution from scratch. Update the code accordingly "
-                    "while preserving the core problem statement and all earlier instructions."
-                )
+        if feedback and mode != "quant":
+            effective_prompt = (
+                prompt
+                + "\n\nUser feedback on the previous solution and additional "
+                "requirements:\n"
+                + feedback
+                + "\n\nCRITICAL: If there is existing code visible on the screen, you MUST fix and modify "
+                "that existing code. DO NOT create a new solution from scratch. Update the code accordingly "
+                "while preserving the core problem statement and all earlier instructions."
+            )
 
-        # Use more tokens for quant mode since it's text-based explanations
-        max_tokens = 1000 if mode == "quant" else 500
-        
-        if provider == "anthropic":
+        max_tokens = QUANT_MAX_TOKENS if mode == "quant" else 500
+
+        if mode == "quant" and provider == "openai":
+            answer = ask_quant_openai(img_bytes, history, feedback, max_tokens)
+        elif mode == "quant" and provider == "anthropic":
+            answer = ask_quant_anthropic(img_bytes, history, feedback, max_tokens)
+        elif provider == "anthropic":
             answer = ask_anthropic_about_image(img_bytes, effective_prompt, history, max_tokens)
         else:
             answer = ask_openai_about_image(img_bytes, effective_prompt, history, max_tokens)
 
         if interview_id:
             turns = CONVERSATIONS.setdefault(interview_id, [])
-            turns.append({"user": effective_prompt, "assistant": answer})
+            log_prompt = effective_prompt if mode != "quant" else f"[AIME-Preview quant] feedback={bool(feedback)}"
+            turns.append({"user": log_prompt, "assistant": answer})
 
         return jsonify(
             {"ok": True, "answer": answer, "provider": provider, "interview_id": interview_id, "mode": mode}

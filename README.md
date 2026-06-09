@@ -42,3 +42,9 @@ ipconfig getifaddr en0
 ### 4. Use from your phone
 
 - Open the application in your mobile browser.
+
+### If using ngrok:
+In a seperate terminal:
+```bash
+ngrok http 8000
+```
